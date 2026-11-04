@@ -32,4 +32,31 @@ class ExampleRobolectricTest {
         assertEquals(AulaConstants.AULA_PLHUT, booking.pilihanAula)
         assertEquals("4 Jam", booking.durasiPinjam)
     }
+
+    @Test
+    fun verifyHallConflictDetection() {
+        val targetDate = 1793760000000L
+        val existingBookings = listOf(
+            BookingEntity(
+                id = 1L,
+                namaPeminjam = "H. Ahmad Fauzi",
+                tanggalPeminjaman = "2026-11-04",
+                tanggalEpochMs = targetDate,
+                durasiPinjam = "4 Jam",
+                noWhatsapp = "081234567890",
+                pilihanAula = AulaConstants.AULA_PLHUT,
+                catatan = "Manasik"
+            )
+        )
+
+        val bookedMap = existingBookings
+            .filter { it.tanggalEpochMs == targetDate }
+            .associateBy { it.pilihanAula }
+
+        // Aula PLHUT is booked
+        assertTrue(bookedMap.containsKey(AulaConstants.AULA_PLHUT))
+        // Aula Kemenag and Aula Kecil are still available
+        assertTrue(!bookedMap.containsKey(AulaConstants.AULA_KEMENAG))
+        assertTrue(!bookedMap.containsKey(AulaConstants.AULA_KECIL))
+    }
 }

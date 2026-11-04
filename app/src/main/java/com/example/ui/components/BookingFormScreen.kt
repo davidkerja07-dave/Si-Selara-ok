@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,10 +21,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apartment
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.Mosque
 import androidx.compose.material.icons.filled.Notes
@@ -31,6 +36,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,14 +49,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -62,18 +66,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.AulaConstants
+import com.example.data.BookingEntity
 import com.example.ui.FormState
+import com.example.ui.theme.PrimaryGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookingFormScreen(
     formState: FormState,
+    bookedAulas: Map<String, BookingEntity> = emptyMap(),
     onNamaChanged: (String) -> Unit,
     onTanggalSelected: (Long) -> Unit,
     onDurasiNilaiChanged: (String) -> Unit,
@@ -92,6 +100,9 @@ fun BookingFormScreen(
     val datePickerState = rememberDatePickerState(
         initialSelectedDateMillis = formState.tanggalEpochMs
     )
+
+    val isCurrentAulaBooked = bookedAulas.containsKey(formState.pilihanAula)
+    val allAulasFullyBooked = bookedAulas.size >= AulaConstants.AULA_OPTIONS.size
 
     if (showDatePicker) {
         DatePickerDialog(
@@ -196,7 +207,7 @@ fun BookingFormScreen(
                 supportingText = {
                     formState.namaError?.let {
                         Text(text = it, color = MaterialTheme.colorScheme.error)
-                    } ?: Text("Nama penanggung jawab atau nama organisasi")
+                    } ?: Text("Nama penanggung jawab atau nama organisasi/instansi")
                 },
                 singleLine = true,
                 modifier = Modifier
@@ -209,7 +220,7 @@ fun BookingFormScreen(
         // 2. Tanggal Peminjaman (Interactive DatePicker)
         Column {
             Text(
-                text = "Tanggal Peminjaman *",
+                text = "Tanggal Peminjaman / Sewa *",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -263,6 +274,120 @@ fun BookingFormScreen(
                         modifier = Modifier.testTag("change_date_button")
                     ) {
                         Text("Ubah")
+                    }
+                }
+            }
+
+            // Real-time Availability status panel on the selected date
+            Spacer(modifier = Modifier.height(10.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (allAulasFullyBooked)
+                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                    else
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (allAulasFullyBooked) Icons.Default.Warning else Icons.Default.Info,
+                            contentDescription = null,
+                            tint = if (allAulasFullyBooked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Status Ketersediaan Aula pada Tanggal Terpilih:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (allAulasFullyBooked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    AulaConstants.AULA_OPTIONS.forEach { aulaName ->
+                        val isBooked = bookedAulas.containsKey(aulaName)
+                        val bookingInfo = bookedAulas[aulaName]
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isBooked) MaterialTheme.colorScheme.error.copy(alpha = 0.08f)
+                                    else PrimaryGreen.copy(alpha = 0.08f)
+                                )
+                                .clickable(enabled = !isBooked) {
+                                    onAulaSelected(aulaName)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = if (isBooked) Icons.Default.Block else Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = if (isBooked) MaterialTheme.colorScheme.error else PrimaryGreen,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = aulaName,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isBooked) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (isBooked && bookingInfo != null) {
+                                        Text(
+                                            text = "Disewa: ${bookingInfo.namaPeminjam} (${bookingInfo.durasiPinjam})",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        if (isBooked) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                                        else PrimaryGreen.copy(alpha = 0.15f)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = if (isBooked) "Tidak Bisa Dipilih" else "Tersedia",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isBooked) MaterialTheme.colorScheme.error else PrimaryGreen
+                                )
+                            }
+                        }
+                    }
+
+                    if (allAulasFullyBooked) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Semua gedung aula sudah penuh terisi pada tanggal ini. Harap pilih tanggal lain.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -390,18 +515,34 @@ fun BookingFormScreen(
                     readOnly = true,
                     label = { Text("Pilih Salah Satu Aula") },
                     leadingIcon = {
-                        val icon = when (formState.pilihanAula) {
-                            AulaConstants.AULA_PLHUT -> Icons.Default.Mosque
-                            AulaConstants.AULA_KEMENAG -> Icons.Default.Apartment
+                        val icon = when {
+                            isCurrentAulaBooked -> Icons.Default.Block
+                            formState.pilihanAula == AulaConstants.AULA_PLHUT -> Icons.Default.Mosque
+                            formState.pilihanAula == AulaConstants.AULA_KEMENAG -> Icons.Default.Apartment
                             else -> Icons.Default.MeetingRoom
                         }
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (isCurrentAulaBooked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                         )
                     },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                    isError = isCurrentAulaBooked || formState.aulaError != null,
+                    supportingText = {
+                        if (isCurrentAulaBooked) {
+                            val bookedBy = bookedAulas[formState.pilihanAula]?.namaPeminjam ?: "pihak lain"
+                            Text(
+                                text = "⛔ Gedung ini sudah disewa oleh $bookedBy pada tanggal ini. Otomatis tidak bisa dipilih!",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else if (formState.aulaError != null) {
+                            Text(text = formState.aulaError, color = MaterialTheme.colorScheme.error)
+                        } else {
+                            Text("Aula berstatus 'Sudah Disewa' otomatis dinonaktifkan")
+                        }
+                    },
                     modifier = Modifier
                         .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                         .fillMaxWidth()
@@ -414,46 +555,68 @@ fun BookingFormScreen(
                     onDismissRequest = { dropdownExpanded = false }
                 ) {
                     AulaConstants.AULA_OPTIONS.forEach { aulaOption ->
-                        val (icon, desc) = when (aulaOption) {
-                            AulaConstants.AULA_PLHUT -> Pair(
-                                Icons.Default.Mosque,
-                                "Pusat Layanan Haji & Umrah Terpadu (Kapasitas Besar)"
-                            )
-                            AulaConstants.AULA_KEMENAG -> Pair(
-                                Icons.Default.Apartment,
-                                "Aula Utama Kantor Kemenag (Kapasitas Sedang)"
-                            )
-                            else -> Pair(
-                                Icons.Default.MeetingRoom,
-                                "Aula Rapat / Pertemuan Kecil (Kapasitas Terbatas)"
-                            )
+                        val isBooked = bookedAulas.containsKey(aulaOption)
+                        val bookedInfo = bookedAulas[aulaOption]
+
+                        val defaultIcon = when (aulaOption) {
+                            AulaConstants.AULA_PLHUT -> Icons.Default.Mosque
+                            AulaConstants.AULA_KEMENAG -> Icons.Default.Apartment
+                            else -> Icons.Default.MeetingRoom
                         }
 
                         DropdownMenuItem(
+                            enabled = !isBooked, // AUTOMATICALLY CANNOT BE SELECTED IF ALREADY BOOKED!
                             text = {
                                 Column {
-                                    Text(
-                                        text = aulaOption,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
-                                    )
-                                    Text(
-                                        text = desc,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = aulaOption,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = if (isBooked)
+                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                            else
+                                                MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (isBooked) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "[SUDAH DISEWA]",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                    if (isBooked && bookedInfo != null) {
+                                        Text(
+                                            text = "Dipesan oleh: ${bookedInfo.namaPeminjam} • Tidak dapat dipilih",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    } else {
+                                        Text(
+                                            text = "✓ Tersedia untuk disewa",
+                                            fontSize = 11.sp,
+                                            color = PrimaryGreen,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
                                 }
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = icon,
+                                    imageVector = if (isBooked) Icons.Default.Block else defaultIcon,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = if (isBooked) MaterialTheme.colorScheme.error.copy(alpha = 0.6f) else MaterialTheme.colorScheme.primary
                                 )
                             },
                             onClick = {
-                                onAulaSelected(aulaOption)
-                                dropdownExpanded = false
+                                if (!isBooked) {
+                                    onAulaSelected(aulaOption)
+                                    dropdownExpanded = false
+                                }
                             },
                             modifier = Modifier.testTag("option_$aulaOption")
                         )
@@ -491,54 +654,67 @@ fun BookingFormScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         // Save & Reset Buttons
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (formState.editingId != null) {
-                OutlinedButton(
-                    onClick = onCancelEditClick,
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (formState.editingId != null) {
+                    OutlinedButton(
+                        onClick = onCancelEditClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp)
+                            .testTag("cancel_button"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Batal")
+                    }
+                }
+
+                Button(
+                    onClick = onSaveClick,
+                    enabled = !formState.isSaving && !isCurrentAulaBooked && !allAulasFullyBooked,
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(if (formState.editingId != null) 2f else 1f)
                         .height(52.dp)
-                        .testTag("cancel_button"),
-                    shape = RoundedCornerShape(12.dp)
+                        .testTag("save_booking_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        disabledContainerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    )
                 ) {
-                    Text("Batal")
+                    if (formState.isSaving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (formState.editingId != null) "Perbarui Peminjaman" else "Simpan Peminjaman",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
-            Button(
-                onClick = onSaveClick,
-                enabled = !formState.isSaving,
-                modifier = Modifier
-                    .weight(if (formState.editingId != null) 2f else 1f)
-                    .height(52.dp)
-                    .testTag("save_booking_button"),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
+            if (isCurrentAulaBooked) {
+                Text(
+                    text = "Gedung '${formState.pilihanAula}' sudah ada yang menyewa pada tanggal ini sehingga tombol simpan terkunci. Silakan pilih gedung aula yang masih berstatus 'Tersedia'.",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 )
-            ) {
-                if (formState.isSaving) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Save,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (formState.editingId != null) "Perbarui Peminjaman" else "Simpan Peminjaman",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
         }
 

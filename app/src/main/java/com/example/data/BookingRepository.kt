@@ -21,6 +21,14 @@ class BookingRepository(private val bookingDao: BookingDao) {
         return bookingDao.searchBookings(query)
     }
 
+    fun getBookingsOnDate(tanggalEpochMs: Long): Flow<List<BookingEntity>> {
+        return bookingDao.getBookingsOnDate(tanggalEpochMs)
+    }
+
+    suspend fun isAulaBooked(aula: String, tanggalEpochMs: Long, excludeId: Long?): Boolean {
+        return bookingDao.countConflictBookings(aula, tanggalEpochMs, excludeId) > 0
+    }
+
     fun getBookingById(id: Long): Flow<BookingEntity?> {
         return bookingDao.getBookingById(id)
     }

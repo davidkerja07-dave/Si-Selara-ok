@@ -44,6 +44,12 @@ interface BookingDao {
     @Query("SELECT COUNT(*) FROM bookings")
     suspend fun getCount(): Int
 
+    @Query("SELECT * FROM bookings WHERE tanggalEpochMs = :tanggalEpochMs")
+    fun getBookingsOnDate(tanggalEpochMs: Long): Flow<List<BookingEntity>>
+
+    @Query("SELECT COUNT(*) FROM bookings WHERE pilihanAula = :aula AND tanggalEpochMs = :tanggalEpochMs AND (:excludeId IS NULL OR id != :excludeId)")
+    suspend fun countConflictBookings(aula: String, tanggalEpochMs: Long, excludeId: Long?): Int
+
     @Query("SELECT * FROM bookings WHERE namaPeminjam LIKE '%' || :query || '%' OR catatan LIKE '%' || :query || '%' OR noWhatsapp LIKE '%' || :query || '%' ORDER BY tanggalEpochMs DESC")
     fun searchBookings(query: String): Flow<List<BookingEntity>>
 }

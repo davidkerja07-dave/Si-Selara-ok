@@ -40,6 +40,7 @@ data class FormState(
     val noWhatsapp: String = "",
     val whatsappError: String? = null,
     val pilihanAula: String = AulaConstants.AULA_PLHUT,
+    val aulaError: String? = null,
     val catatan: String = "",
     val isSaving: Boolean = false
 )
@@ -78,7 +79,19 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     private val _formState = MutableStateFlow(FormState())
     val formState: StateFlow<FormState> = _formState.asStateFlow()
 
-    // Week offset state (0 = current week, -1 = last week, +1 = next week)
+    // Real-time map of booked halls for the currently chosen form date (excluding current editing booking)
+    val bookedAulasOnSelectedDate: StateFlow<Map<String, BookingEntity>> = combine(
+        allBookings,
+        _formState
+    ) { bookings, form ->
+        bookings
+            .filter { it.tanggalEpochMs == form.tanggalEpochMs && (form.editingId == null || it.id != form.editingId) }
+            .associateBy { it.pilihanAula }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyMap()
+    )
     private val _weekOffset = MutableStateFlow(0)
     val weekOffset: StateFlow<Int> = _weekOffset.asStateFlow()
 
@@ -146,11 +159,38 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             set(Calendar.MILLISECOND, 0)
         }
         val cleanMidnight = calendar.timeInMillis
+
+        val currentForm = _formState.value
+        val bookedOnDate = allBookings.value
+            .filter { it.tanggalEpochMs == cleanMidnight && (currentForm.editingId == null || it.id != currentForm.editingId) }
+            .associateBy { it.pilihanAula }
+
+        var currentAula = currentForm.pilihanAula
+        var aulaError: String? = null
+
+        // If the currently selected aula is booked on this new date, switch to another available aula
+        if (bookedOnDate.containsKey(currentAula)) {
+            val availableAula = AulaConstants.AULA_OPTIONS.firstOrNull { !bookedOnDate.containsKey(it) }
+            if (availableAula != null) {
+                currentAula = availableAula
+                viewModelScope.launch {
+                    _uiEvent.emit("Aula sebelumnya sudah terisi pada tanggal ini. Dialihkan ke $availableAula yang tersedia.")
+                }
+            } else {
+                aulaError = "Semua gedung aula sudah penuh terisi pada tanggal ini. Silakan pilih tanggal lain."
+                viewModelScope.launch {
+                    _uiEvent.emit("Perhatian: Seluruh gedung aula sudah penuh pada tanggal yang dipilih!")
+                }
+            }
+        }
+
         _formState.update {
             it.copy(
                 tanggalEpochMs = cleanMidnight,
                 tanggalFormatted = isoDateFormat.format(Date(cleanMidnight)),
                 tanggalDisplay = indonesianDateFormat.format(Date(cleanMidnight)),
+                pilihanAula = currentAula,
+                aulaError = aulaError,
                 tanggalError = null
             )
         }
@@ -182,8 +222,31 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onAulaSelected(aula: String) {
-        if (AulaConstants.AULA_OPTIONS.contains(aula)) {
-            _formState.update { it.copy(pilihanAula = aula) }
+        if (!AulaConstants.AULA_OPTIONS.contains(aula)) return
+        val currentForm = _formState.value
+
+        val bookedEntity = allBookings.value.firstOrNull {
+            it.tanggalEpochMs == currentForm.tanggalEpochMs &&
+            it.pilihanAula == aula &&
+            (currentForm.editingId == null || it.id != currentForm.editingId)
+        }
+
+        // Automatic prevention: if booked, cannot be selected!
+        if (bookedEntity != null) {
+            _formState.update {
+                it.copy(aulaError = "Gedung $aula sudah disewa oleh ${bookedEntity.namaPeminjam} pada tanggal ini dan tidak dapat dipilih.")
+            }
+            viewModelScope.launch {
+                _uiEvent.emit("Tidak dapat dipilih: $aula sudah disewa oleh ${bookedEntity.namaPeminjam}.")
+            }
+            return
+        }
+
+        _formState.update {
+            it.copy(
+                pilihanAula = aula,
+                aulaError = null
+            )
         }
     }
 
@@ -207,7 +270,8 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             durasiSatuan = satuan,
             noWhatsapp = booking.noWhatsapp,
             pilihanAula = booking.pilihanAula,
-            catatan = booking.catatan
+            catatan = booking.catatan,
+            aulaError = null
         )
         _currentTab.value = 0 // Switch to form tab
     }
@@ -222,6 +286,12 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             set(Calendar.MILLISECOND, 0)
         }
         val cleanMidnight = calendar.timeInMillis
+
+        val bookedToday = allBookings.value
+            .filter { it.tanggalEpochMs == cleanMidnight }
+            .associateBy { it.pilihanAula }
+        val defaultAula = AulaConstants.AULA_OPTIONS.firstOrNull { !bookedToday.containsKey(it) } ?: AulaConstants.AULA_PLHUT
+
         _formState.value = FormState(
             editingId = null,
             namaPeminjam = "",
@@ -231,8 +301,10 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             durasiNilai = "4",
             durasiSatuan = "Jam",
             noWhatsapp = "",
-            pilihanAula = AulaConstants.AULA_PLHUT,
-            catatan = ""
+            pilihanAula = defaultAula,
+            catatan = "",
+            aulaError = if (bookedToday.size >= AulaConstants.AULA_OPTIONS.size)
+                "Semua gedung aula sudah penuh terisi pada hari ini. Silakan pilih tanggal lain." else null
         )
     }
 
@@ -276,9 +348,25 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        val durasiString = "${state.durasiNilai} ${state.durasiSatuan}"
-
         viewModelScope.launch {
+            // Atomic check against Room database to ensure hall is not already booked
+            val isAlreadyBooked = repository.isAulaBooked(state.pilihanAula, state.tanggalEpochMs, state.editingId)
+            if (isAlreadyBooked) {
+                val bookedBy = allBookings.value.firstOrNull {
+                    it.tanggalEpochMs == state.tanggalEpochMs &&
+                    it.pilihanAula == state.pilihanAula &&
+                    (state.editingId == null || it.id != state.editingId)
+                }?.namaPeminjam ?: "pihak lain"
+
+                _formState.update {
+                    it.copy(aulaError = "Gedung ${state.pilihanAula} sudah disewa oleh $bookedBy pada tanggal ini!")
+                }
+                _uiEvent.emit("Gagal: Gedung ${state.pilihanAula} sudah disewa oleh $bookedBy. Silakan pilih gedung aula lain.")
+                return@launch
+            }
+
+            val durasiString = "${state.durasiNilai} ${state.durasiSatuan}"
+
             _formState.update { it.copy(isSaving = true) }
             try {
                 if (state.editingId != null) {

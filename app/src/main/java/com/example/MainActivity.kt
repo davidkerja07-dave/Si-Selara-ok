@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
                 val allBookings by viewModel.allBookings.collectAsStateWithLifecycle()
                 val selectedAulaFilter by viewModel.selectedAulaFilter.collectAsStateWithLifecycle()
                 val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+                val bookedAulasOnSelectedDate by viewModel.bookedAulasOnSelectedDate.collectAsStateWithLifecycle()
 
                 // Handle Back Press when not on main Rekap tab
                 BackHandler(enabled = currentTab != 1) {
@@ -205,6 +206,7 @@ class MainActivity : ComponentActivity() {
                             when (currentTab) {
                                 0 -> BookingFormScreen(
                                     formState = formState,
+                                    bookedAulas = bookedAulasOnSelectedDate,
                                     onNamaChanged = viewModel::onNamaChanged,
                                     onTanggalSelected = viewModel::onTanggalSelected,
                                     onDurasiNilaiChanged = viewModel::onDurasiNilaiChanged,
