@@ -535,7 +535,7 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             cleanNumber = "62" + cleanNumber.substring(1)
         }
 
-        val message = "Halo Bapak/Ibu $namaPeminjam, konfirmasi peminjaman/sewa $aula Kemenag Kota Mojokerto untuk tanggal $tanggal melalui sistem Si-Selara. Ada hal atau fasilitas yang perlu dikoordinasikan?"
+        val message = "Halo Bapak/Ibu $namaPeminjam, konfirmasi peminjaman/sewa $aula Kemenag Kota Mojokerto untuk tanggal $tanggal melalui sistem Si-Sera. Ada hal atau fasilitas yang perlu dikoordinasikan?"
         val encodedMessage = Uri.encode(message)
         val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=$encodedMessage")
 
@@ -557,7 +557,7 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
         val bookings = weeklyBookings.value
 
         val sb = StringBuilder()
-        sb.append("📋 *SI-SELARA - REKAPITULASI SEWA & PEMINJAMAN AULA*\n")
+        sb.append("📋 *SI-SERA - REKAPITULASI SEWA & PEMINJAMAN AULA*\n")
         sb.append("🏛 *Kemenag Kota Mojokerto*\n")
         sb.append("🗓 Periode: ${weekRange.label}\n\n")
         sb.append("📊 *RINGKASAN STATISTIK:*\n")
@@ -582,7 +582,7 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
                 sb.append("\n")
             }
         }
-        sb.append("Dicatat melalui Si-Selara (Aplikasi Sewa dan Rekap Aula) Kemenag Kota Mojokerto.")
+        sb.append("Dicatat melalui Si-Sera (Aplikasi Sewa dan Rekap Aula) Kemenag Kota Mojokerto.")
 
         val sendIntent = Intent().apply {
             action = Intent.ACTION_SEND

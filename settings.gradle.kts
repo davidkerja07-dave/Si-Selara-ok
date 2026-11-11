@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Si-Selara"
+rootProject.name = "Si-Sera"
 
 include(":app")

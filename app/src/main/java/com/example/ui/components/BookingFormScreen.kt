@@ -161,17 +161,19 @@ fun BookingFormScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = if (formState.editingId != null) "Edit Sewa & Peminjaman Aula" else "Form Sewa & Peminjaman Aula",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
                         text = if (formState.editingId != null)
-                            "Perbarui rincian reservasi Si-Selara Kemenag Kota Mojokerto"
+                            "Si-Sera • Perbarui rincian reservasi Kemenag Kota Mojokerto"
                         else
-                            "Si-Selara • Kemenag Kota Mojokerto (PLHUT, Kemenag, Aula Kecil)",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            "Si-Sera — Aplikasi Sewa dan Rekap Aula\nKemenag Kota Mojokerto",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 17.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.95f)
                     )
                 }
                 if (formState.editingId != null) {

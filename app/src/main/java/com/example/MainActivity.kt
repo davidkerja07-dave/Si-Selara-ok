@@ -95,16 +95,22 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         TopAppBar(
                             title = {
-                                androidx.compose.foundation.layout.Column {
+                                androidx.compose.foundation.layout.Column(
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                ) {
                                     Text(
-                                        text = "Si-Selara",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 19.sp
+                                        text = "Si-Sera",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 23.sp,
+                                        letterSpacing = 0.5.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary
                                     )
                                     Text(
-                                        text = "Sewa & Rekap Aula • Kemenag Kota Mojokerto",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
+                                        text = "Aplikasi Sewa dan Rekap Aula — Kemenag Kota Mojokerto",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.95f),
+                                        lineHeight = 16.sp
                                     )
                                 }
                             },

@@ -123,15 +123,15 @@ fun WeeklySummaryScreen(
 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "Si-Selara • Rekap Mingguan",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                text = "Si-Sera • Rekap Mingguan",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
                                 text = weekRange.label,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
