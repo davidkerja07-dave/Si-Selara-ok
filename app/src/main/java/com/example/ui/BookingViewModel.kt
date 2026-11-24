@@ -107,6 +107,16 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     private val _currentTab = MutableStateFlow(1) // Default to Rekap Mingguan to showcase stats immediately
     val currentTab: StateFlow<Int> = _currentTab.asStateFlow()
 
+    // Authentication Gate State
+    private val _isLoggedIn = MutableStateFlow(false)
+    val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
+
+    private val _loginPassword = MutableStateFlow("")
+    val loginPassword: StateFlow<String> = _loginPassword.asStateFlow()
+
+    private val _loginError = MutableStateFlow<String?>(null)
+    val loginError: StateFlow<String?> = _loginError.asStateFlow()
+
     // UI Events (Snackbar messages)
     private val _uiEvent = MutableSharedFlow<String>()
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()
@@ -137,6 +147,38 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
 
     fun selectTab(tab: Int) {
         _currentTab.value = tab
+    }
+
+    // --- LOGIN / LOGOUT ACTIONS ---
+
+    fun onLoginPasswordChanged(password: String) {
+        _loginPassword.value = password
+        if (_loginError.value != null) {
+            _loginError.value = null
+        }
+    }
+
+    fun attemptLogin() {
+        val input = _loginPassword.value
+        when {
+            input.isEmpty() -> {
+                _loginError.value = "Password tidak boleh kosong."
+            }
+            AuthHelper.verifyPassword(input) -> {
+                _loginPassword.value = ""
+                _loginError.value = null
+                _isLoggedIn.value = true
+            }
+            else -> {
+                _loginError.value = "Password salah. Silakan periksa kembali."
+            }
+        }
+    }
+
+    fun logout() {
+        _loginPassword.value = ""
+        _loginError.value = null
+        _isLoggedIn.value = false
     }
 
     // --- FORM ACTIONS ---

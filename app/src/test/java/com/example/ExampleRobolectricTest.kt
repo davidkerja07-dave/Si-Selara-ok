@@ -59,4 +59,12 @@ class ExampleRobolectricTest {
         assertTrue(!bookedMap.containsKey(AulaConstants.AULA_KEMENAG))
         assertTrue(!bookedMap.containsKey(AulaConstants.AULA_KECIL))
     }
+
+    @Test
+    fun verifyLoginPasswordValidation() {
+        assertTrue(com.example.ui.AuthHelper.verifyPassword("kemenag36#"))
+        assertTrue(!com.example.ui.AuthHelper.verifyPassword("wrongpassword"))
+        assertTrue(!com.example.ui.AuthHelper.verifyPassword(""))
+        assertTrue(!com.example.ui.AuthHelper.verifyPassword("kemenag36"))
+    }
 }

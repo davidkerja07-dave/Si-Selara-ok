@@ -6,12 +6,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EditNote
@@ -39,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,6 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.BookingViewModel
 import com.example.ui.components.AllBookingsScreen
 import com.example.ui.components.BookingFormScreen
+import com.example.ui.components.LoginScreen
 import com.example.ui.components.WeeklySummaryScreen
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.flow.collectLatest
@@ -64,6 +68,10 @@ class MainActivity : ComponentActivity() {
                 val context = LocalContext.current
                 val snackbarHostState = remember { SnackbarHostState() }
 
+                val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
+                val loginPassword by viewModel.loginPassword.collectAsStateWithLifecycle()
+                val loginError by viewModel.loginError.collectAsStateWithLifecycle()
+
                 val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
                 val formState by viewModel.formState.collectAsStateWithLifecycle()
                 val weekRange by viewModel.currentWeekRange.collectAsStateWithLifecycle()
@@ -74,66 +82,84 @@ class MainActivity : ComponentActivity() {
                 val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
                 val bookedAulasOnSelectedDate by viewModel.bookedAulasOnSelectedDate.collectAsStateWithLifecycle()
 
-                // Handle Back Press when not on main Rekap tab
-                BackHandler(enabled = currentTab != 1) {
-                    if (currentTab == 0 && formState.editingId != null) {
-                        viewModel.resetForm()
-                    }
-                    viewModel.selectTab(1)
-                }
-
-                // Collect Snackbar UI Events
-                LaunchedEffect(Unit) {
-                    viewModel.uiEvent.collectLatest { message ->
-                        snackbarHostState.showSnackbar(message)
-                    }
-                }
-
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    snackbarHost = { SnackbarHost(snackbarHostState) },
-                    topBar = {
-                        TopAppBar(
-                            title = {
-                                androidx.compose.foundation.layout.Column(
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = "Si-Sera",
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 23.sp,
-                                        letterSpacing = 0.5.sp,
-                                        color = MaterialTheme.colorScheme.onPrimary
-                                    )
-                                    Text(
-                                        text = "Aplikasi Sewa dan Rekap Aula — Kemenag Kota Mojokerto",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.95f),
-                                        lineHeight = 16.sp
-                                    )
-                                }
-                            },
-                            actions = {
-                                if (currentTab == 1) {
-                                    IconButton(
-                                        onClick = { viewModel.shareWeeklyReport(context) },
-                                        modifier = Modifier.testTag("topbar_share_button")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Share,
-                                            contentDescription = "Bagikan Rekap Mingguan"
-                                        )
-                                    }
-                                }
-                            },
-                            colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                                actionIconContentColor = MaterialTheme.colorScheme.onPrimary
-                            )
+                Crossfade(targetState = isLoggedIn, label = "auth_crossfade") { loggedIn ->
+                    if (!loggedIn) {
+                        LoginScreen(
+                            password = loginPassword,
+                            passwordError = loginError,
+                            onPasswordChanged = viewModel::onLoginPasswordChanged,
+                            onLoginClick = viewModel::attemptLogin
                         )
-                    },
+                    } else {
+                        // Handle Back Press when not on main Rekap tab
+                        BackHandler(enabled = currentTab != 1) {
+                            if (currentTab == 0 && formState.editingId != null) {
+                                viewModel.resetForm()
+                            }
+                            viewModel.selectTab(1)
+                        }
+
+                        // Collect Snackbar UI Events
+                        LaunchedEffect(Unit) {
+                            viewModel.uiEvent.collectLatest { message ->
+                                snackbarHostState.showSnackbar(message)
+                            }
+                        }
+
+                        Scaffold(
+                            modifier = Modifier.fillMaxSize(),
+                            snackbarHost = { SnackbarHost(snackbarHostState) },
+                            topBar = {
+                                TopAppBar(
+                                    title = {
+                                        androidx.compose.foundation.layout.Column(
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = "Si-Sera",
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 23.sp,
+                                                letterSpacing = 0.5.sp,
+                                                color = MaterialTheme.colorScheme.onPrimary
+                                            )
+                                            Text(
+                                                text = "Aplikasi Sewa dan Rekap Aula — Kemenag Kota Mojokerto",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.95f),
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    },
+                                    actions = {
+                                        if (currentTab == 1) {
+                                            IconButton(
+                                                onClick = { viewModel.shareWeeklyReport(context) },
+                                                modifier = Modifier.testTag("topbar_share_button")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Share,
+                                                    contentDescription = "Bagikan Rekap Mingguan"
+                                                )
+                                            }
+                                        }
+                                        IconButton(
+                                            onClick = { viewModel.logout() },
+                                            modifier = Modifier.testTag("topbar_logout_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                                contentDescription = stringResource(id = R.string.logout_desc)
+                                            )
+                                        }
+                                    },
+                                    colors = TopAppBarDefaults.topAppBarColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                                        actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                )
+                            },
                     bottomBar = {
                         NavigationBar(
                             modifier = Modifier.testTag("bottom_navigation_bar"),
@@ -258,6 +284,8 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
+                    }
+                }
                     }
                 }
             }

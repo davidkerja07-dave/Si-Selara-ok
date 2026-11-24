@@ -2,4 +2,13 @@
     <string name="app_name">Si-Sera</string>
     <string name="app_full_name">Si-Sera (Aplikasi Sewa dan Rekap Aula) Kemenag Kota Mojokerto</string>
     <string name="kemenag_mojokerto">Kemenag Kota Mojokerto</string>
+    <string name="logo_kemenag_desc">Logo Kementerian Agama</string>
+    <string name="login_title">Masuk ke Aplikasi</string>
+    <string name="login_subtitle">Masukkan password untuk mengakses layanan sewa dan rekap aula</string>
+    <string name="login_password_label">Password</string>
+    <string name="login_password_hint">Masukkan password aplikasi</string>
+    <string name="login_button">Masuk</string>
+    <string name="show_password_desc">Tampilkan password</string>
+    <string name="hide_password_desc">Sembunyikan password</string>
+    <string name="logout_desc">Keluar / Kunci Aplikasi</string>
 </resources>
