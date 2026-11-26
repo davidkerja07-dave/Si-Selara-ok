@@ -21,6 +21,14 @@ object AuthHelper {
         return MessageDigest.isEqual(computedHash, expectedBytes)
     }
 
+    /**
+     * Returns the verification digest only when the supplied password matches,
+     * used to register device membership in Firestore security rules.
+     */
+    fun getVerifiedAccessHash(input: String): String? {
+        return if (verifyPassword(input)) EXPECTED_DIGEST_HEX else null
+    }
+
     private fun hexToBytes(hex: String): ByteArray {
         val len = hex.length
         val data = ByteArray(len / 2)

@@ -1,0 +1,202 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function expectedAccessHash() {
+      return 'aec543af69d44bf05572f5c7ab4c4a4de66df1e9543f47c57183a8727ac55841';
+    }
+
+    function isVerifiedMemberDoc(workspaceId) {
+      return exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid));
+    }
+
+    function isValidWorkspace(data) {
+      return data.name is string && data.name.size() >= 3 && data.name.size() <= 100 &&
+             data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 100 &&
+             data.memberUids[0] is string;
+    }
+
+    function isValidWorkspaceMember(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.accessHash is string && data.accessHash == expectedAccessHash() &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100));
+    }
+
+    function isValidBooking(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.workspaceId is string && isValidId(data.workspaceId) &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 100 &&
+             data.memberUids[0] is string &&
+             data.namaPeminjam is string && data.namaPeminjam.size() >= 3 && data.namaPeminjam.size() <= 100 &&
+             data.tanggalPeminjaman is string && data.tanggalPeminjaman.size() >= 10 && data.tanggalPeminjaman.size() <= 20 &&
+             data.tanggalEpochMs is int && data.tanggalEpochMs > 0 &&
+             data.durasiPinjam is string && data.durasiPinjam.size() >= 3 && data.durasiPinjam.size() <= 30 &&
+             data.noWhatsapp is string && data.noWhatsapp.size() >= 9 && data.noWhatsapp.size() <= 20 &&
+             data.pilihanAula in ['Aula PLHUT', 'Aula Kemenag', 'Aula Kecil'] &&
+             (!('catatan' in data) || (data.catatan is string && data.catatan.size() <= 500));
+    }
+
+    function isBookingMember() {
+      return existing().userId == request.auth.uid || request.auth.uid in existing().memberUids;
+    }
+
+    match /workspaces/{workspaceId} {
+      allow get: if isSignedIn() &&
+                    isValidId(workspaceId) &&
+                    (existing().ownerId == request.auth.uid || request.auth.uid in existing().memberUids);
+
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(workspaceId) &&
+                       isValidWorkspace(incoming()) &&
+                       incoming().ownerId == request.auth.uid &&
+                       request.auth.uid in incoming().memberUids &&
+                       incoming().keys().hasAll(['name', 'ownerId', 'memberUids', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['name', 'ownerId', 'memberUids', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isVerifiedMemberDoc(workspaceId);
+
+      allow update: if isSignedIn() &&
+                       isValidId(workspaceId) &&
+                       isValidWorkspace(incoming()) &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       existing().ownerId in incoming().memberUids &&
+                       (
+                         // Action 1: Existing member updates workspace metadata or member list
+                         (
+                           (existing().ownerId == request.auth.uid || request.auth.uid in existing().memberUids) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'memberUids', 'updatedAt'])
+                         ) ||
+                         // Action 2: Verified staff device joins workspace memberUids
+                         (
+                           request.auth.uid in incoming().memberUids &&
+                           incoming().memberUids.hasAll(existing().memberUids) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'updatedAt']) &&
+                           isVerifiedMemberDoc(workspaceId)
+                         )
+                       );
+
+      allow delete: if isSignedIn() &&
+                       isValidId(workspaceId) &&
+                       existing().ownerId == request.auth.uid;
+
+      match /members/{memberId} {
+        allow get: if isSignedIn() &&
+                      isValidId(workspaceId) &&
+                      isValidId(memberId) &&
+                      request.auth.uid == memberId;
+
+        allow list: if false;
+
+        allow create: if isSignedIn() &&
+                         isValidId(workspaceId) &&
+                         isValidId(memberId) &&
+                         request.auth.uid == memberId &&
+                         isValidWorkspaceMember(incoming()) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'accessHash', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'accessHash', 'displayName', 'createdAt', 'updatedAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
+
+        allow update: if isSignedIn() &&
+                         isValidId(workspaceId) &&
+                         isValidId(memberId) &&
+                         request.auth.uid == memberId &&
+                         isValidWorkspaceMember(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().accessHash == existing().accessHash &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']);
+
+        allow delete: if isSignedIn() &&
+                         isValidId(workspaceId) &&
+                         isValidId(memberId) &&
+                         request.auth.uid == memberId;
+      }
+    }
+
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() &&
+                    isValidId(bookingId) &&
+                    isBookingMember();
+
+      // Top-level shared collection query enforced against memberUids;
+      // client queries MUST filter via .whereArrayContains("memberUids", uid).
+      allow list: if isSignedIn() &&
+                     request.auth.uid in resource.data.memberUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isValidBooking(incoming()) &&
+                       incoming().userId == request.auth.uid &&
+                       request.auth.uid in incoming().memberUids &&
+                       incoming().keys().hasAll([
+                         'userId', 'workspaceId', 'memberUids', 'namaPeminjam',
+                         'tanggalPeminjaman', 'tanggalEpochMs', 'durasiPinjam',
+                         'noWhatsapp', 'pilihanAula', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'workspaceId', 'memberUids', 'namaPeminjam',
+                         'tanggalPeminjaman', 'tanggalEpochMs', 'durasiPinjam',
+                         'noWhatsapp', 'pilihanAula', 'catatan', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isVerifiedMemberDoc(incoming().workspaceId);
+
+      allow update: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isValidBooking(incoming()) &&
+                       isBookingMember() &&
+                       incoming().userId == existing().userId &&
+                       incoming().workspaceId == existing().workspaceId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       existing().userId in incoming().memberUids &&
+                       (
+                         // Action 1: Edit booking details
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'namaPeminjam', 'tanggalPeminjaman', 'tanggalEpochMs',
+                           'durasiPinjam', 'noWhatsapp', 'pilihanAula', 'catatan', 'updatedAt'
+                         ]) ||
+                         // Action 2: Sync authorized workspace memberUids
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'memberUids', 'updatedAt'
+                         ])
+                       );
+
+      allow delete: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isBookingMember();
+    }
+  }
+}

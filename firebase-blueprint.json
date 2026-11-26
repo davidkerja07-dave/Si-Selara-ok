@@ -1,0 +1,170 @@
+{
+  "entities": {
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Shared Kemenag Kota Mojokerto organization workspace coordinating authorized hall booking devices.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name of the organization workspace (3 to 100 characters)."
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user who initialized the workspace."
+        },
+        "memberUids": {
+          "type": "array",
+          "description": "Bounded list of authorized staff Firebase Auth UIDs (1 to 100 entries)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp() at creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp updated via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "name",
+        "ownerId",
+        "memberUids",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorkspaceMember": {
+      "title": "WorkspaceMember",
+      "description": "Verified staff membership record unlocked with the organization password.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the verified staff member."
+        },
+        "accessHash": {
+          "type": "string",
+          "description": "Salted SHA-256 verification digest proving knowledge of the app access password."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Optional staff display name from Google profile (up to 100 characters)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp() at join."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp updated via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "accessHash",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Hall reservation record synchronized in real time across authorized devices.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the staff member who created the booking."
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Parent workspace identifier (kemenag_kota_mojokerto)."
+        },
+        "memberUids": {
+          "type": "array",
+          "description": "Bounded list of authorized workspace member UIDs permitted to read and manage this booking."
+        },
+        "namaPeminjam": {
+          "type": "string",
+          "description": "Borrower or organization name (3 to 100 characters)."
+        },
+        "tanggalPeminjaman": {
+          "type": "string",
+          "description": "ISO date string YYYY-MM-DD."
+        },
+        "tanggalEpochMs": {
+          "type": "integer",
+          "description": "Local midnight epoch timestamp in milliseconds for date and weekly filtering."
+        },
+        "durasiPinjam": {
+          "type": "string",
+          "description": "Booking duration display string (e.g., 4 Jam or 1 Hari)."
+        },
+        "noWhatsapp": {
+          "type": "string",
+          "description": "Borrower WhatsApp phone number (9 to 20 characters)."
+        },
+        "pilihanAula": {
+          "type": "string",
+          "enum": [
+            "Aula PLHUT",
+            "Aula Kemenag",
+            "Aula Kecil"
+          ],
+          "description": "Selected Kemenag Kota Mojokerto hall."
+        },
+        "catatan": {
+          "type": "string",
+          "description": "Optional notes or event equipment requirements (up to 500 characters)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp() at creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp updated via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "workspaceId",
+        "memberUids",
+        "namaPeminjam",
+        "tanggalPeminjaman",
+        "tanggalEpochMs",
+        "durasiPinjam",
+        "noWhatsapp",
+        "pilihanAula",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/workspaces/{workspaceId}": {
+      "schema": {
+        "$ref": "#/entities/Workspace"
+      },
+      "description": "Organization workspace storing authorized staff member UIDs."
+    },
+    "/workspaces/{workspaceId}/members/{memberId}": {
+      "schema": {
+        "$ref": "#/entities/WorkspaceMember"
+      },
+      "description": "Per-user verified membership documents under the workspace."
+    },
+    "/bookings/{bookingId}": {
+      "schema": {
+        "$ref": "#/entities/Booking"
+      },
+      "description": "Real-time shared hall booking records scoped to authorized workspace members."
+    }
+  }
+}

@@ -11,4 +11,10 @@
     <string name="show_password_desc">Tampilkan password</string>
     <string name="hide_password_desc">Sembunyikan password</string>
     <string name="logout_desc">Keluar / Kunci Aplikasi</string>
+    <string name="google_signin_button">Masuk dengan Google</string>
+    <string name="google_signin_title">Hubungkan Akun Google</string>
+    <string name="google_signin_subtitle">Masuk dengan akun Google untuk sinkronisasi online &amp; real-time antar perangkat Android</string>
+    <string name="google_account_connected">Akun Google terhubung</string>
+    <string name="switch_google_account">Ganti Akun Google</string>
+    <string name="sync_realtime_badge">Online &amp; Real-Time</string>
 </resources>

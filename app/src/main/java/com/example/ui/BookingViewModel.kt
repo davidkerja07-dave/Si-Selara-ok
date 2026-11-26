@@ -1,15 +1,17 @@
 package com.example.ui
 
-import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.lifecycle.AndroidViewModel
+import android.util.Log
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.AppDatabase
 import com.example.data.AulaConstants
 import com.example.data.BookingEntity
 import com.example.data.BookingRepository
+import com.example.data.WorkspaceConstants
+import com.google.firebase.firestore.FirebaseFirestoreException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -17,7 +19,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -26,8 +30,14 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+sealed interface UiState<out T> {
+    data object Loading : UiState<Nothing>
+    data class Success<T>(val data: T) : UiState<T>
+    data class Error(val message: String) : UiState<Nothing>
+}
+
 data class FormState(
-    val editingId: Long? = null,
+    val editingId: String? = null,
     val namaPeminjam: String = "",
     val namaError: String? = null,
     val tanggalEpochMs: Long = System.currentTimeMillis(),
@@ -59,20 +69,45 @@ data class WeekRange(
     val offset: Int
 )
 
-class BookingViewModel(application: Application) : AndroidViewModel(application) {
+class BookingViewModel(
+    private val repository: BookingRepository,
+    private val currentUserId: String
+) : ViewModel() {
 
-    private val repository: BookingRepository
-
-    init {
-        val database = AppDatabase.getDatabase(application, viewModelScope)
-        repository = BookingRepository(database.bookingDao())
-    }
-
-    val allBookings: StateFlow<List<BookingEntity>> = repository.allBookings
+    val bookingsUiState: StateFlow<UiState<List<BookingEntity>>> = repository.observeBookings(currentUserId)
+        .map<List<BookingEntity>, UiState<List<BookingEntity>>> { UiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            val rootError = firestoreError ?: error
+            Log.w(TAG, "Error observing bookings", rootError)
+            emit(UiState.Error(rootError.localizedMessage ?: "Gagal menyinkronkan data jadwal aula"))
+        }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = UiState.Loading
+        )
+
+    val allBookings: StateFlow<List<BookingEntity>> = bookingsUiState
+        .map { state -> (state as? UiState.Success)?.data.orEmpty() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = emptyList()
+        )
+
+    private val workspaceMembers: StateFlow<List<String>> = repository.observeWorkspaceMembers(currentUserId)
+        .catch { error ->
+            if (error is CancellationException) throw error
+            emit(listOf(currentUserId))
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = listOf(currentUserId)
         )
 
     // Form State
@@ -89,9 +124,10 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             .associateBy { it.pilihanAula }
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = emptyMap()
     )
+
     private val _weekOffset = MutableStateFlow(0)
     val weekOffset: StateFlow<Int> = _weekOffset.asStateFlow()
 
@@ -103,19 +139,9 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    // Active bottom navigation tab (0 = Form Peminjaman, 1 = Rekap Mingguan, 2 = Riwayat Lengkap)
-    private val _currentTab = MutableStateFlow(1) // Default to Rekap Mingguan to showcase stats immediately
+    // Active bottom navigation tab (0 = Form Peminjaman, 1 = Rekap Mingguan, 2 = Semua Arsip)
+    private val _currentTab = MutableStateFlow(1)
     val currentTab: StateFlow<Int> = _currentTab.asStateFlow()
-
-    // Authentication Gate State
-    private val _isLoggedIn = MutableStateFlow(false)
-    val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
-
-    private val _loginPassword = MutableStateFlow("")
-    val loginPassword: StateFlow<String> = _loginPassword.asStateFlow()
-
-    private val _loginError = MutableStateFlow<String?>(null)
-    val loginError: StateFlow<String?> = _loginError.asStateFlow()
 
     // UI Events (Snackbar messages)
     private val _uiEvent = MutableSharedFlow<String>()
@@ -126,16 +152,8 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     private val shortRangeFormat = SimpleDateFormat("d MMM yyyy", Locale("id", "ID"))
 
     init {
-        // Initialize form with today's date
         val today = System.currentTimeMillis()
-        val calendar = Calendar.getInstance().apply {
-            timeInMillis = today
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val cleanMidnight = calendar.timeInMillis
+        val cleanMidnight = normalizeMidnight(today)
         _formState.update {
             it.copy(
                 tanggalEpochMs = cleanMidnight,
@@ -143,64 +161,52 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
                 tanggalDisplay = indonesianDateFormat.format(Date(cleanMidnight))
             )
         }
+
+        // Automatically propagate new authorized workspace devices to existing shared bookings
+        viewModelScope.launch {
+            combine(workspaceMembers, allBookings) { members, bookings ->
+                members to bookings
+            }.collect { (members, bookings) ->
+                if (members.size > 1) {
+                    bookings.filter { booking ->
+                        booking.id.isNotBlank() && !booking.memberUids.containsAll(members)
+                    }.forEach { booking ->
+                        val ownerUid = booking.userId.ifBlank { currentUserId }
+                        repository.syncBookingMembers(booking.id, ownerUid, members)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun normalizeMidnight(epochMs: Long): Long {
+        return Calendar.getInstance().apply {
+            timeInMillis = epochMs
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 
     fun selectTab(tab: Int) {
         _currentTab.value = tab
     }
 
-    // --- LOGIN / LOGOUT ACTIONS ---
-
-    fun onLoginPasswordChanged(password: String) {
-        _loginPassword.value = password
-        if (_loginError.value != null) {
-            _loginError.value = null
-        }
-    }
-
-    fun attemptLogin() {
-        val input = _loginPassword.value
-        when {
-            input.isEmpty() -> {
-                _loginError.value = "Password tidak boleh kosong."
-            }
-            AuthHelper.verifyPassword(input) -> {
-                _loginPassword.value = ""
-                _loginError.value = null
-                _isLoggedIn.value = true
-            }
-            else -> {
-                _loginError.value = "Password salah. Silakan periksa kembali."
-            }
-        }
-    }
-
-    fun logout() {
-        _loginPassword.value = ""
-        _loginError.value = null
-        _isLoggedIn.value = false
-    }
-
     // --- FORM ACTIONS ---
 
     fun onNamaChanged(nama: String) {
+        val bounded = nama.take(100)
         _formState.update {
             it.copy(
-                namaPeminjam = nama,
-                namaError = if (nama.trim().length < 3) "Nama peminjam minimal 3 karakter" else null
+                namaPeminjam = bounded,
+                namaError = if (bounded.trim().length < 3) "Nama peminjam minimal 3 karakter" else null
             )
         }
     }
 
     fun onTanggalSelected(epochMs: Long) {
-        val calendar = Calendar.getInstance().apply {
-            timeInMillis = epochMs
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val cleanMidnight = calendar.timeInMillis
+        val cleanMidnight = normalizeMidnight(epochMs)
 
         val currentForm = _formState.value
         val bookedOnDate = allBookings.value
@@ -210,7 +216,6 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
         var currentAula = currentForm.pilihanAula
         var aulaError: String? = null
 
-        // If the currently selected aula is booked on this new date, switch to another available aula
         if (bookedOnDate.containsKey(currentAula)) {
             val availableAula = AulaConstants.AULA_OPTIONS.firstOrNull { !bookedOnDate.containsKey(it) }
             if (availableAula != null) {
@@ -239,7 +244,7 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onDurasiNilaiChanged(nilai: String) {
-        val filtered = nilai.filter { it.isDigit() }
+        val filtered = nilai.filter { it.isDigit() }.take(4)
         _formState.update {
             it.copy(
                 durasiNilai = filtered,
@@ -253,12 +258,12 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onWhatsappChanged(wa: String) {
-        val filtered = wa.filter { it.isDigit() || it == '+' }
-        val isValid = filtered.length >= 9
+        val filtered = wa.filter { it.isDigit() || it == '+' }.take(20)
+        val digitsCount = filtered.count { it.isDigit() }
         _formState.update {
             it.copy(
                 noWhatsapp = filtered,
-                whatsappError = if (!isValid) "Nomor WhatsApp minimal 9 digit angka" else null
+                whatsappError = if (digitsCount < 9 || filtered.length < 9) "Nomor WhatsApp minimal 9 digit angka" else null
             )
         }
     }
@@ -269,11 +274,10 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
 
         val bookedEntity = allBookings.value.firstOrNull {
             it.tanggalEpochMs == currentForm.tanggalEpochMs &&
-            it.pilihanAula == aula &&
-            (currentForm.editingId == null || it.id != currentForm.editingId)
+                it.pilihanAula == aula &&
+                (currentForm.editingId == null || it.id != currentForm.editingId)
         }
 
-        // Automatic prevention: if booked, cannot be selected!
         if (bookedEntity != null) {
             _formState.update {
                 it.copy(aulaError = "Gedung $aula sudah disewa oleh ${bookedEntity.namaPeminjam} pada tanggal ini dan tidak dapat dipilih.")
@@ -293,11 +297,10 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onCatatanChanged(catatan: String) {
-        _formState.update { it.copy(catatan = catatan) }
+        _formState.update { it.copy(catatan = catatan.take(500)) }
     }
 
     fun startEditBooking(booking: BookingEntity) {
-        // Parse duration like "4 Jam" or "1 Hari"
         val parts = booking.durasiPinjam.split(" ")
         val nilai = parts.firstOrNull()?.filter { it.isDigit() } ?: "1"
         val satuan = if (parts.size > 1) parts[1] else "Jam"
@@ -315,19 +318,11 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             catatan = booking.catatan,
             aulaError = null
         )
-        _currentTab.value = 0 // Switch to form tab
+        _currentTab.value = 0
     }
 
     fun resetForm() {
-        val today = System.currentTimeMillis()
-        val calendar = Calendar.getInstance().apply {
-            timeInMillis = today
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val cleanMidnight = calendar.timeInMillis
+        val cleanMidnight = normalizeMidnight(System.currentTimeMillis())
 
         val bookedToday = allBookings.value
             .filter { it.tanggalEpochMs == cleanMidnight }
@@ -353,14 +348,14 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
     fun saveBooking() {
         val state = _formState.value
 
-        // Validate all fields
         var hasError = false
         var updatedNamaError: String? = null
         var updatedDurasiError: String? = null
         var updatedWhatsappError: String? = null
 
-        if (state.namaPeminjam.trim().length < 3) {
-            updatedNamaError = "Nama peminjam minimal 3 karakter"
+        val trimmedNama = state.namaPeminjam.trim()
+        if (trimmedNama.length !in 3..100) {
+            updatedNamaError = "Nama peminjam harus 3 hingga 100 karakter"
             hasError = true
         }
 
@@ -370,9 +365,10 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             hasError = true
         }
 
-        val waDigits = state.noWhatsapp.filter { it.isDigit() }
-        if (waDigits.length < 9) {
-            updatedWhatsappError = "Nomor WhatsApp minimal 9 digit angka"
+        val trimmedWa = state.noWhatsapp.trim()
+        val waDigits = trimmedWa.filter { it.isDigit() }
+        if (waDigits.length < 9 || trimmedWa.length !in 9..20) {
+            updatedWhatsappError = "Nomor WhatsApp harus 9 hingga 20 karakter"
             hasError = true
         }
 
@@ -391,56 +387,72 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
         }
 
         viewModelScope.launch {
-            // Atomic check against Room database to ensure hall is not already booked
-            val isAlreadyBooked = repository.isAulaBooked(state.pilihanAula, state.tanggalEpochMs, state.editingId)
-            if (isAlreadyBooked) {
-                val bookedBy = allBookings.value.firstOrNull {
-                    it.tanggalEpochMs == state.tanggalEpochMs &&
-                    it.pilihanAula == state.pilihanAula &&
-                    (state.editingId == null || it.id != state.editingId)
-                }?.namaPeminjam ?: "pihak lain"
-
-                _formState.update {
-                    it.copy(aulaError = "Gedung ${state.pilihanAula} sudah disewa oleh $bookedBy pada tanggal ini!")
-                }
-                _uiEvent.emit("Gagal: Gedung ${state.pilihanAula} sudah disewa oleh $bookedBy. Silakan pilih gedung aula lain.")
-                return@launch
-            }
-
-            val durasiString = "${state.durasiNilai} ${state.durasiSatuan}"
-
             _formState.update { it.copy(isSaving = true) }
             try {
-                if (state.editingId != null) {
+                // Live Firestore conflict check across all synchronized devices
+                val isAlreadyBooked = repository.isAulaBooked(
+                    userId = currentUserId,
+                    aula = state.pilihanAula,
+                    tanggalEpochMs = state.tanggalEpochMs,
+                    excludeId = state.editingId
+                )
+                if (isAlreadyBooked) {
+                    val bookedBy = allBookings.value.firstOrNull {
+                        it.tanggalEpochMs == state.tanggalEpochMs &&
+                            it.pilihanAula == state.pilihanAula &&
+                            (state.editingId == null || it.id != state.editingId)
+                    }?.namaPeminjam ?: "pihak lain"
+
+                    _formState.update {
+                        it.copy(aulaError = "Gedung ${state.pilihanAula} sudah disewa oleh $bookedBy pada tanggal ini!")
+                    }
+                    _uiEvent.emit("Gagal: Gedung ${state.pilihanAula} sudah disewa oleh $bookedBy. Silakan pilih gedung aula lain.")
+                    return@launch
+                }
+
+                val durasiString = "${state.durasiNilai} ${state.durasiSatuan}"
+                val result = if (state.editingId != null) {
                     val updatedBooking = BookingEntity(
                         id = state.editingId,
-                        namaPeminjam = state.namaPeminjam.trim(),
+                        userId = currentUserId,
+                        workspaceId = WorkspaceConstants.WORKSPACE_ID,
+                        namaPeminjam = trimmedNama,
                         tanggalPeminjaman = state.tanggalFormatted,
                         tanggalEpochMs = state.tanggalEpochMs,
                         durasiPinjam = durasiString,
-                        noWhatsapp = state.noWhatsapp.trim(),
+                        noWhatsapp = trimmedWa,
                         pilihanAula = state.pilihanAula,
-                        catatan = state.catatan.trim()
+                        catatan = state.catatan.trim().take(500)
                     )
                     repository.updateBooking(updatedBooking)
-                    _uiEvent.emit("Peminjaman aula berhasil diperbarui!")
                 } else {
                     val newBooking = BookingEntity(
-                        namaPeminjam = state.namaPeminjam.trim(),
+                        userId = currentUserId,
+                        workspaceId = WorkspaceConstants.WORKSPACE_ID,
+                        memberUids = workspaceMembers.value,
+                        namaPeminjam = trimmedNama,
                         tanggalPeminjaman = state.tanggalFormatted,
                         tanggalEpochMs = state.tanggalEpochMs,
                         durasiPinjam = durasiString,
-                        noWhatsapp = state.noWhatsapp.trim(),
+                        noWhatsapp = trimmedWa,
                         pilihanAula = state.pilihanAula,
-                        catatan = state.catatan.trim()
+                        catatan = state.catatan.trim().take(500)
                     )
-                    repository.insertBooking(newBooking)
-                    _uiEvent.emit("Peminjaman aula berhasil disimpan!")
+                    repository.insertBooking(newBooking, workspaceMembers.value)
                 }
-                resetForm()
-                _currentTab.value = 1 // Switch back to Rekap Mingguan
-            } catch (e: Exception) {
-                _uiEvent.emit("Gagal menyimpan: ${e.localizedMessage}")
+
+                if (result.isSuccess) {
+                    val msg = if (state.editingId != null)
+                        "Peminjaman aula berhasil diperbarui & disinkronkan online!"
+                    else
+                        "Peminjaman aula berhasil disimpan & disinkronkan online!"
+                    _uiEvent.emit(msg)
+                    resetForm()
+                    _currentTab.value = 1
+                } else {
+                    val err = result.exceptionOrNull()
+                    _uiEvent.emit("Gagal menyimpan ke server: ${err?.localizedMessage ?: "Terjadi kesalahan jaringan"}")
+                }
             } finally {
                 _formState.update { it.copy(isSaving = false) }
             }
@@ -449,11 +461,12 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
 
     fun deleteBooking(booking: BookingEntity) {
         viewModelScope.launch {
-            try {
-                repository.deleteBooking(booking)
-                _uiEvent.emit("Data peminjaman telah dihapus.")
-            } catch (e: Exception) {
-                _uiEvent.emit("Gagal menghapus: ${e.localizedMessage}")
+            val result = repository.deleteBooking(booking)
+            if (result.isSuccess) {
+                _uiEvent.emit("Data peminjaman telah dihapus secara online.")
+            } else {
+                val err = result.exceptionOrNull()
+                _uiEvent.emit("Gagal menghapus: ${err?.localizedMessage ?: "Terjadi kesalahan jaringan"}")
             }
         }
     }
@@ -480,9 +493,6 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
         _searchQuery.value = query
     }
 
-    /**
-     * Calculates the start (Monday 00:00:00) and end (Sunday 23:59:59) for a given week offset.
-     */
     fun getWeekRange(offset: Int): WeekRange {
         val cal = Calendar.getInstance().apply {
             firstDayOfWeek = Calendar.MONDAY
@@ -518,14 +528,11 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
         return WeekRange(startMs, endMs, label, offset)
     }
 
-    /**
-     * Reactively computes weekly bookings based on the selected week offset and venue filter.
-     */
     val currentWeekRange: StateFlow<WeekRange> = _weekOffset
-        .combine(MutableStateFlow(Unit)) { offset, _ -> getWeekRange(offset) }
+        .map { offset -> getWeekRange(offset) }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = getWeekRange(0)
         )
 
@@ -541,31 +548,24 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
         }
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = emptyList()
     )
 
-    /**
-     * Statistics for the currently selected week (independent of the venue filter dropdown).
-     */
     val weeklyStats: StateFlow<WeeklyStats> = combine(
         allBookings,
         currentWeekRange
     ) { bookings, weekRange ->
         val weekItems = bookings.filter { it.tanggalEpochMs in weekRange.startEpochMs..weekRange.endEpochMs }
-        val plhut = weekItems.count { it.pilihanAula == AulaConstants.AULA_PLHUT }
-        val kemenag = weekItems.count { it.pilihanAula == AulaConstants.AULA_KEMENAG }
-        val kecil = weekItems.count { it.pilihanAula == AulaConstants.AULA_KECIL }
-
         WeeklyStats(
             totalSemua = weekItems.size,
-            totalPlhut = plhut,
-            totalKemenag = kemenag,
-            totalKecil = kecil
+            totalPlhut = weekItems.count { it.pilihanAula == AulaConstants.AULA_PLHUT },
+            totalKemenag = weekItems.count { it.pilihanAula == AulaConstants.AULA_KEMENAG },
+            totalKecil = weekItems.count { it.pilihanAula == AulaConstants.AULA_KECIL }
         )
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = WeeklyStats()
     )
 
@@ -586,7 +586,7 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
         }
         try {
             context.startActivity(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             viewModelScope.launch {
                 _uiEvent.emit("Tidak dapat membuka WhatsApp: Pastikan aplikasi WhatsApp terpasang.")
             }
@@ -635,5 +635,10 @@ class BookingViewModel(application: Application) : AndroidViewModel(application)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         context.startActivity(shareIntent)
+    }
+
+    private companion object {
+        const val TAG = "BookingViewModel"
+        const val STOP_TIMEOUT_MILLIS = 5000L
     }
 }
