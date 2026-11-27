@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,12 +36,15 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
 import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +54,12 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 private const val AUTH_TAG = "Auth"
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 /**
  * Silent auto sign-in on startup using a single GetGoogleIdOption request.
@@ -88,7 +98,8 @@ fun attemptAutoSignIn(
 
     scope.launch {
         try {
-            val result = credentialManager.getCredential(context, request)
+            val activityOrContext = context.findActivity() ?: context
+            val result = credentialManager.getCredential(activityOrContext, request)
             val cred = result.credential
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
@@ -191,7 +202,7 @@ fun onGoogleSignInClicked(
         return
     }
 
-    val activity = context as? Activity
+    val activity = context.findActivity()
     if (activity == null) {
         onAuthError("Konteks Activity tidak tersedia untuk masuk dengan Google.")
         return
@@ -218,6 +229,15 @@ fun onGoogleSignInClicked(
         } catch (e: GetCredentialCancellationException) {
             Log.w(AUTH_TAG, "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
             onAuthCancelled()
+        } catch (e: NoCredentialException) {
+            Log.w(AUTH_TAG, "No Google credential available: ${e.message}", e)
+            onAuthError("Tidak ada akun Google aktif atau Google Play Services belum siap. Pastikan akun Google sudah login di perangkat ini.")
+        } catch (e: GetCredentialException) {
+            Log.e(AUTH_TAG, "Credential Manager error [${e.type}]: ${e.errorMessage}", e)
+            onAuthError("Gagal memuat akun Google (${e.errorMessage ?: e.type}). Pastikan koneksi internet & Google Play Services aktif.")
+        } catch (e: FirebaseAuthException) {
+            Log.e(AUTH_TAG, "Firebase Auth error [${e.errorCode}]: ${e.message}", e)
+            onAuthError("Autentikasi Firebase gagal (${e.errorCode}): ${e.localizedMessage ?: "Coba lagi"}")
         } catch (e: Exception) {
             Log.e(AUTH_TAG, "Google Sign-In failed", e)
             onAuthError(e.localizedMessage ?: "Gagal masuk dengan akun Google.")

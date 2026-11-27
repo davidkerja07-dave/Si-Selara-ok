@@ -146,8 +146,13 @@ private fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
 
     Crossfade(targetState = isAuthorized, label = "auth_crossfade") { authorized ->
         if (!authorized || user == null) {
+            val connectedLabel = user?.let { firebaseUser ->
+                firebaseUser.email?.takeIf { it.isNotBlank() }
+                    ?: firebaseUser.displayName?.takeIf { it.isNotBlank() }
+                    ?: "Akun Google (${firebaseUser.uid.take(6)}...)"
+            }
             LoginScreen(
-                googleUserEmail = user?.email ?: user?.displayName,
+                googleUserEmail = connectedLabel,
                 isSigningInOrSyncing = isJoiningWorkspace,
                 password = loginPassword,
                 loginError = loginError,

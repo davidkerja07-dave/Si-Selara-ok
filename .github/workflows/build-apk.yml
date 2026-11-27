@@ -23,20 +23,27 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK Environment & Licenses
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Android SDK Environment, Licenses & Platforms
         run: |
           echo "Menyiapkan environment Android SDK..."
-          export ANDROID_HOME=/usr/local/lib/android/sdk
-          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          export ANDROID_HOME="$SDK_DIR"
+          export ANDROID_SDK_ROOT="$SDK_DIR"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 
-          # Menyetujui lisensi Android SDK agar Gradle dapat mengunduh komponen otomatis.
-          # Hash lisensi harus diverifikasi dan tidak boleh dikarang.
           mkdir -p "$ANDROID_HOME/licenses"
+          printf "\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n" >> "$ANDROID_HOME/licenses/android-sdk-preview-license"
 
-          if [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          SDKMANAGER=$(command -v sdkmanager || find "$ANDROID_HOME" -name "sdkmanager" -type f 2>/dev/null | head -n 1 || true)
+          if [ -n "$SDKMANAGER" ]; then
+            set +o pipefail
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" "platform-tools" "platforms;android-36.1" "build-tools;36.0.0" || true
           fi
 
       - name: Prepare .env and Debug Keystore
@@ -55,7 +62,7 @@ jobs:
 
           if [ ! -f "debug.keystore" ]; then
             if [ -f "debug.keystore.base64" ]; then
-              base64 -d debug.keystore.base64 > debug.keystore
+              tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
               echo "debug.keystore berhasil dibuat dari Base64"
             else
               echo "Membuat debug.keystore dengan keytool..."
@@ -88,6 +95,8 @@ jobs:
           ./gradlew :app:assembleDebug \
             --no-daemon \
             --no-configuration-cache \
+            --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
             --stacktrace \
             -Pandroid.builder.sdkDownload=true
 

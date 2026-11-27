@@ -81,7 +81,30 @@ class BookingRepository(
 
             val workspaceRef = db.collection("workspaces").document(WorkspaceConstants.WORKSPACE_ID)
             currentPath = workspaceRef.path
-            try {
+            val workspaceExists = try {
+                currentOp = OperationType.GET
+                workspaceRef.get().await().exists()
+            } catch (e: FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    // Document exists and this newly verified device is not yet in memberUids
+                    true
+                } else {
+                    throw e
+                }
+            }
+
+            if (!workspaceExists) {
+                currentOp = OperationType.CREATE
+                workspaceRef.set(
+                    mapOf(
+                        "name" to WorkspaceConstants.WORKSPACE_NAME,
+                        "ownerId" to uid,
+                        "memberUids" to listOf(uid),
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            } else {
                 currentOp = OperationType.UPDATE
                 workspaceRef.update(
                     mapOf(
@@ -89,21 +112,6 @@ class BookingRepository(
                         "updatedAt" to FieldValue.serverTimestamp()
                     )
                 ).await()
-            } catch (e: FirebaseFirestoreException) {
-                if (e.code == FirebaseFirestoreException.Code.NOT_FOUND) {
-                    currentOp = OperationType.CREATE
-                    workspaceRef.set(
-                        mapOf(
-                            "name" to WorkspaceConstants.WORKSPACE_NAME,
-                            "ownerId" to uid,
-                            "memberUids" to listOf(uid),
-                            "createdAt" to FieldValue.serverTimestamp(),
-                            "updatedAt" to FieldValue.serverTimestamp()
-                        )
-                    ).await()
-                } else {
-                    throw e
-                }
             }
 
             Result.success(Unit)

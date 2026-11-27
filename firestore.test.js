@@ -124,7 +124,8 @@ test("Workspace membership: requires matching accessHash and prevents spoofing",
       })
   );
 
-  // Unverified user cannot initialize workspace
+  // Unverified user cannot check or initialize workspace
+  await assertFails(charlieDb.collection("workspaces").doc(WORKSPACE_ID).get());
   await assertFails(
     aliceDb.collection("workspaces").doc(WORKSPACE_ID).set({
       name: "Kemenag Kota Mojokerto",
@@ -135,8 +136,22 @@ test("Workspace membership: requires matching accessHash and prevents spoofing",
     })
   );
 
-  // Verified user can register member doc and initialize workspace
+  // Verified first user can check non-existent workspace (resource == null), see exists == false, and create it
+  await assertSucceeds(
+    aliceDb
+      .collection("workspaces")
+      .doc(WORKSPACE_ID)
+      .collection("members")
+      .doc(ALICE_UID)
+      .get()
+  );
   await assertSucceeds(registerVerifiedMember(aliceDb, ALICE_UID, "Alice"));
+  const wsSnap = await assertSucceeds(
+    aliceDb.collection("workspaces").doc(WORKSPACE_ID).get()
+  );
+  if (wsSnap.exists) {
+    throw new Error("Expected workspace not to exist yet");
+  }
   await assertSucceeds(
     aliceDb.collection("workspaces").doc(WORKSPACE_ID).set({
       name: "Kemenag Kota Mojokerto",
@@ -175,8 +190,9 @@ test("Verified staff devices: can join workspace and share bookings in real time
     })
   );
 
-  // Bob registers verified member doc with password hash, then joins
+  // Bob registers verified member doc with password hash; get() fails because workspace exists without Bob, then join update() succeeds
   await assertSucceeds(registerVerifiedMember(bobDb, BOB_UID, "Bob"));
+  await assertFails(bobDb.collection("workspaces").doc(WORKSPACE_ID).get());
   await assertSucceeds(
     bobDb.collection("workspaces").doc(WORKSPACE_ID).update({
       memberUids: [ALICE_UID, BOB_UID],
